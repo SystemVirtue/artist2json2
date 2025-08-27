@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Database, Download, Settings, FileText } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { JSONManagementService, SQLConversionOptions } from "@/services/jsonManagementService";
+import { ImportExportService } from "@/services/importExportService";
 
 interface JSONConvertToolProps {
   data: any[];
@@ -18,6 +19,7 @@ interface JSONConvertToolProps {
 export const JSONConvertTool = ({ data, disabled }: JSONConvertToolProps) => {
   const { toast } = useToast();
   const [outputFormat, setOutputFormat] = useState<'sql' | 'csv' | 'json'>('sql');
+  const [csvFormat, setCsvFormat] = useState<'standard' | 'videolist'>('standard');
   const [options, setOptions] = useState<SQLConversionOptions>({
     database: 'mysql',
     tableName: 'music_video_data',
@@ -76,15 +78,25 @@ export const JSONConvertTool = ({ data, disabled }: JSONConvertToolProps) => {
           description: `Converting ${data.length} records to CSV...`,
         });
         
-        content = JSONManagementService.convertToCSV(data);
-        filename = `music_video_data_${dateStr}.csv`;
+        if (csvFormat === 'videolist') {
+          content = ImportExportService.exportAllVideosCSV(data);
+          filename = `all-videos-list_${dateStr}.csv`;
+          
+          toast({
+            title: "CSV Export Complete", 
+            description: `All videos list exported as ${filename}`,
+          });
+        } else {
+          content = JSONManagementService.convertToCSV(data);
+          filename = `music_video_data_${dateStr}.csv`;
+          
+          toast({
+            title: "CSV Export Complete", 
+            description: `Standard CSV file exported as ${filename}`,
+          });
+        }
+        
         mimeType = 'text/csv';
-        
-        toast({
-          title: "CSV Export Complete", 
-          description: `CSV file exported as ${filename}`,
-        });
-        
       } else if (outputFormat === 'json') {
         toast({
           title: "Converting to JSON",
@@ -188,6 +200,25 @@ export const JSONConvertTool = ({ data, disabled }: JSONConvertToolProps) => {
               </Select>
             </div>
 
+            {outputFormat === 'csv' && (
+              <div className="space-y-2">
+                <Label htmlFor="csvFormat">CSV Format</Label>
+                <Select
+                  value={csvFormat}
+                  onValueChange={(value) => setCsvFormat(value as 'standard' | 'videolist')}
+                  disabled={disabled}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select CSV format" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="standard">Standard Artist Data</SelectItem>
+                    <SelectItem value="videolist">All Videos Text List</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             {outputFormat === 'sql' && (
               <div className="space-y-2">
                 <Label htmlFor="database">Target Database</Label>
@@ -285,12 +316,15 @@ export const JSONConvertTool = ({ data, disabled }: JSONConvertToolProps) => {
             <Database className="h-5 w-5 text-primary" />
             <CardTitle className="text-lg">
               {outputFormat === 'sql' ? `${currentDbInfo.name} Output` : 
-               outputFormat === 'csv' ? 'CSV Output' : 'JSON Output'}
+               outputFormat === 'csv' ? (csvFormat === 'videolist' ? 'All Videos CSV Output' : 'Standard CSV Output') : 
+               'JSON Output'}
             </CardTitle>
           </div>
           <CardDescription>
             {outputFormat === 'sql' ? currentDbInfo.description :
-             outputFormat === 'csv' ? 'Comma-separated values format compatible with spreadsheet applications' :
+             outputFormat === 'csv' ? (csvFormat === 'videolist' ? 
+               'Individual video tracks with artist name, track title, and video URL on each row' :
+               'Comma-separated values format compatible with spreadsheet applications') :
              'Pretty-formatted JSON file with proper indentation'}
           </CardDescription>
         </CardHeader>
@@ -305,9 +339,19 @@ export const JSONConvertTool = ({ data, disabled }: JSONConvertToolProps) => {
                   </Badge>
                 )) : outputFormat === 'csv' ? (
                   <>
-                    <Badge variant="secondary" className="text-xs">Excel compatible</Badge>
-                    <Badge variant="secondary" className="text-xs">Flattened structure</Badge>
-                    <Badge variant="secondary" className="text-xs">UTF-8 encoding</Badge>
+                    {csvFormat === 'videolist' ? (
+                      <>
+                        <Badge variant="secondary" className="text-xs">Track per row</Badge>
+                        <Badge variant="secondary" className="text-xs">Artist + Track + URL</Badge>
+                        <Badge variant="secondary" className="text-xs">Video listing format</Badge>
+                      </>
+                    ) : (
+                      <>
+                        <Badge variant="secondary" className="text-xs">Excel compatible</Badge>
+                        <Badge variant="secondary" className="text-xs">Flattened structure</Badge>
+                        <Badge variant="secondary" className="text-xs">UTF-8 encoding</Badge>
+                      </>
+                    )}
                   </>
                 ) : (
                   <>
