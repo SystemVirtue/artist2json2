@@ -356,6 +356,57 @@ export class ImportExportService {
   }
 
   /**
+   * Export all videos as CSV text list
+   */
+  static exportAllVideosCSV(data: ArtistData[]): string {
+    const csvRows: string[] = [];
+    
+    // Add header row
+    csvRows.push('artistname,strTrack,strMusicVid');
+    
+    // Process each artist and their tracks
+    data.forEach(artist => {
+      if (artist.mvids && artist.mvids.length > 0) {
+        artist.mvids.forEach(video => {
+          if (video.strTrack && video.strMusicVid) {
+            // Escape CSV values (handle commas, quotes, newlines)
+            const escapeCsvValue = (value: string): string => {
+              if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+                return `"${value.replace(/"/g, '""')}"`;
+              }
+              return value;
+            };
+            
+            const artistName = escapeCsvValue(artist.artistName);
+            const trackName = escapeCsvValue(video.strTrack);
+            const videoUrl = escapeCsvValue(video.strMusicVid);
+            
+            csvRows.push(`${artistName},${trackName},${videoUrl}`);
+          }
+        });
+      }
+    });
+    
+    return csvRows.join('\n');
+  }
+
+  /**
+   * Download all videos as CSV file
+   */
+  static downloadAllVideosCSV(data: ArtistData[], filename?: string): void {
+    const csvContent = this.exportAllVideosCSV(data);
+    const dataUri = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
+    
+    const defaultFilename = `all-videos-list-${new Date().toISOString().split('T')[0]}.csv`;
+    const exportFilename = filename || defaultFilename;
+    
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFilename);
+    linkElement.click();
+  }
+
+  /**
    * Export summary as text report
    */
   static exportSummaryReport(summary: DatabaseSummary): string {

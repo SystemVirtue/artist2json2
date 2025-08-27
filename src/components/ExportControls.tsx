@@ -1,7 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, Trash2, FileJson, Import, BarChart3 } from "lucide-react";
+import { Download, Trash2, FileJson, Import, BarChart3, FileText } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { ImportExportService } from "@/services/importExportService";
 import { ArtistData } from "@/pages/Index";
@@ -111,6 +111,23 @@ export const ExportControls = ({
     }
   };
 
+  const handleCSVExport = () => {
+    try {
+      ImportExportService.downloadAllVideosCSV(database);
+      
+      toast({
+        title: "CSV Export Complete",
+        description: "All videos list downloaded as CSV file",
+      });
+    } catch (error) {
+      toast({
+        title: "Export Error",
+        description: error instanceof Error ? error.message : "Failed to export CSV",
+        variant: "destructive"
+      });
+    }
+  };
+
   return (
     <Card className="shadow-lg border-border/50">
       <CardHeader className="pb-4">
@@ -153,6 +170,19 @@ export const ExportControls = ({
           </Button>
         </div>
 
+        {/* CSV Export Row */}
+        <div className="w-full">
+          <Button
+            onClick={handleCSVExport}
+            disabled={disabled || !hasData}
+            variant="outline"
+            className="w-full flex items-center gap-2"
+          >
+            <FileText className="h-4 w-4" />
+            All Videos Text List (CSV)
+          </Button>
+        </div>
+
         {/* Analysis/Management Row */}
         <div className="grid grid-cols-2 gap-3">
           <Button
@@ -188,6 +218,7 @@ export const ExportControls = ({
 
         <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t border-border/30">
           <p>• JSON exports include all artist data and music videos</p>
+          <p>• CSV exports list each track individually with artist and video URL</p>
           <p>• Import supports JSON files from previous exports</p>
           <p>• Summary generates detailed analytics and downloads report</p>
         </div>
