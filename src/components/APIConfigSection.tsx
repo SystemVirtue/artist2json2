@@ -43,7 +43,7 @@ export const APIConfigSection = ({ config, onConfigUpdate, disabled }: APIConfig
   const resetToDefaults = () => {
     const defaultConfig: APIConfig = {
       userAgent: "MusicVideoDBManager/1.0 ( your-email@example.com )",
-      theAudioDbKey: "2",
+      theAudioDbKey: import.meta.env.VITE_THEAUDIODB_API_KEY || "18626d636d76696473706d",
       youtubeApiKey: "",
       spotifyAccessToken: ""
     };
