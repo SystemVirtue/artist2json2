@@ -254,8 +254,8 @@ const Index = () => {
     }
 
     toast({
-      title: "Video Processing Started",
-      description: `Getting video data for ${artistsWithMBID.length} artists`,
+      title: "Video Processing Started", 
+      description: `Getting video data for ${artistsWithMBID.length} artists. Note: Free API key limited to 1 video per artist.`,
     });
 
     for (const { artist, index } of artistsWithMBID) {
@@ -268,6 +268,9 @@ const Index = () => {
         const videos = await theAudioDbLimiter.enqueue(() =>
           apiServiceRef.current.getArtistMusicVideos(artist.musicBrainzArtistID!)
         );
+
+        console.log(`Processing artist ${artist.artistName}: got ${videos.length} videos`);
+        console.log(`Current videos for ${artist.artistName}:`, artist.mvids?.length || 0);
 
         setApiStats(prev => ({
           ...prev,

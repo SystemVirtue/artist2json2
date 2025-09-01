@@ -90,7 +90,10 @@ export class APIService {
 
       const data: TheAudioDBResponse = await response.json();
       
+      console.log(`TheAudioDB API response for ${musicBrainzId}:`, data);
+      
       if (data.mvids && Array.isArray(data.mvids)) {
+        console.log(`Found ${data.mvids.length} music videos for artist ${musicBrainzId}`);
         // Remove strDescription from each video object
         return data.mvids.map(video => {
           const { strDescription, ...videoWithoutDescription } = video as any;
@@ -98,6 +101,7 @@ export class APIService {
         });
       }
 
+      console.log(`No music videos found for artist ${musicBrainzId}`);
       return [];
     } catch (error) {
       console.error('TheAudioDB API error:', error);
