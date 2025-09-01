@@ -241,7 +241,7 @@ const Index = () => {
     
     const artistsWithMBID = database
       .map((artist, index) => ({ artist, index }))
-      .filter(({ artist }) => artist.musicBrainzArtistID && !artist.mvids);
+      .filter(({ artist }) => artist.musicBrainzArtistID);
 
     if (artistsWithMBID.length === 0) {
       toast({
@@ -283,7 +283,11 @@ const Index = () => {
         }
 
         setDatabase(prev => prev.map((a, i) => 
-          i === index ? { ...a, mvids: videos } : a
+          i === index ? { 
+            ...a, 
+            mvids: a.mvids ? [...a.mvids, ...videos] : videos,
+            status: 'completed' as const
+          } : a
         ));
 
       } catch (error) {
@@ -432,7 +436,10 @@ const Index = () => {
             }
 
             setDatabase(prev => prev.map((a, i) => 
-              i === index ? { ...a, mvids: videos } : a
+              i === index ? { 
+                ...a, 
+                mvids: a.mvids ? [...a.mvids, ...videos] : videos
+              } : a
             ));
 
           } catch (videoError) {
