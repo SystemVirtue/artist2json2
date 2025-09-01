@@ -573,6 +573,7 @@ const Index = () => {
             <DataInputSection 
               onArtistsAdded={addArtistsToDatabase}
               disabled={isProcessingMB || isProcessingVideos}
+              apiConfig={apiConfig}
             />
             
             <ExportControls

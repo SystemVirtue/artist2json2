@@ -9,12 +9,20 @@ import { Upload, Type, Link, FileText, Music } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { PlaylistService } from "@/services/playlistService";
 
+interface APIConfig {
+  userAgent: string;
+  theAudioDbKey: string;
+  youtubeApiKey?: string;
+  spotifyAccessToken?: string;
+}
+
 interface DataInputSectionProps {
   onArtistsAdded: (artists: string[]) => void;
   disabled?: boolean;
+  apiConfig: APIConfig;
 }
 
-export const DataInputSection = ({ onArtistsAdded, disabled }: DataInputSectionProps) => {
+export const DataInputSection = ({ onArtistsAdded, disabled, apiConfig }: DataInputSectionProps) => {
   const { toast } = useToast();
   const [textInput, setTextInput] = useState("");
   const [urlInput, setUrlInput] = useState("");
@@ -77,7 +85,7 @@ export const DataInputSection = ({ onArtistsAdded, disabled }: DataInputSectionP
         description: "Parsing playlist URL and extracting artists...",
       });
 
-      const playlistService = new PlaylistService();
+      const playlistService = new PlaylistService(apiConfig.youtubeApiKey, apiConfig.spotifyAccessToken);
       const result = await playlistService.parsePlaylistUrl(urlInput.trim());
       
       if (result.artists.length === 0) {
@@ -230,6 +238,12 @@ export const DataInputSection = ({ onArtistsAdded, disabled }: DataInputSectionP
                 <p>• Spotify: open.spotify.com/playlist/...</p>
                 <p>• Spotify: open.spotify.com/album/...</p>
                 <p>• Apple Music: music.apple.com/.../playlist/...</p>
+              </div>
+              <div className="text-xs text-muted-foreground space-y-1 mt-2 p-2 bg-primary/10 border border-primary/20 rounded">
+                <p><strong>API Configuration:</strong></p>
+                <p>• YouTube API key {apiConfig.youtubeApiKey ? '✓ configured' : '⚠ not configured'}</p>
+                <p>• Spotify access token {apiConfig.spotifyAccessToken ? '✓ configured' : '⚠ not configured'}</p>
+                <p>• Configure API keys in the "API Configuration" section for enhanced playlist parsing</p>
               </div>
             </div>
             <Button 
