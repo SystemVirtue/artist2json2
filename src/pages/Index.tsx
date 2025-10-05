@@ -48,7 +48,7 @@ const Index = () => {
   const [processingStartTime, setProcessingStartTime] = useState<Date | null>(null);
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<string>("");
   const [apiConfig, setApiConfig] = useState({
-    userAgent: "MusicVideoDBManager/1.0 ( your-email@example.com )",
+    userAgent: "MusicVideoDBManager/1.0 ( admin@djamms.app )",
     theAudioDbKey: import.meta.env.VITE_THEAUDIODB_API_KEY || "18626d636d76696473706d",
     youtubeApiKey: import.meta.env.VITE_YOUTUBE_V3_API_KEY || "AIzaSyC12QKbzGaKZw9VD3-ulxU_mrd0htZBiI4",
     spotifyAccessToken: ""
