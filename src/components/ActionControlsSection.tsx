@@ -81,7 +81,7 @@ export const ActionControlsSection = ({
             disabled={disabled}
           />
           <label htmlFor="run-simultaneously" className="text-sm font-medium cursor-pointer">
-            Run Simultaneously - Process each entry through both steps sequentially
+            Run Simultaneously - Process each entry through all steps sequentially
           </label>
         </div>
 
