@@ -171,4 +171,77 @@ export class APIService {
   isSpotifyApiConfigured(): boolean {
     return !!this.config.spotifyAccessToken;
   }
+
+  /**
+   * Extract YouTube video ID from various YouTube URL formats
+   */
+  private extractYouTubeVideoId(url: string): string | null {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+      /^([a-zA-Z0-9_-]{11})$/
+    ];
+
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) return match[1];
+    }
+    
+    return null;
+  }
+
+  /**
+   * Get YouTube video details for multiple videos (up to 50 per request)
+   * @param videoUrls Array of YouTube video URLs or IDs
+   * @returns Array of YouTube video details
+   */
+  async getYouTubeVideoDetails(videoUrls: string[]): Promise<any[]> {
+    if (!this.config.youtubeApiKey) {
+      throw new Error('YouTube API key not configured');
+    }
+
+    // Extract video IDs from URLs
+    const videoIds = videoUrls
+      .map(url => this.extractYouTubeVideoId(url))
+      .filter((id): id is string => id !== null);
+
+    if (videoIds.length === 0) {
+      return [];
+    }
+
+    // YouTube API allows up to 50 video IDs per request
+    const batches: string[][] = [];
+    for (let i = 0; i < videoIds.length; i += 50) {
+      batches.push(videoIds.slice(i, i + 50));
+    }
+
+    const allResults: any[] = [];
+
+    for (const batch of batches) {
+      const ids = batch.join(',');
+      const url = `https://www.googleapis.com/youtube/v3/videos?id=${ids}&part=contentDetails,snippet,statistics&key=${this.config.youtubeApiKey}`;
+
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`YouTube API error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.items && Array.isArray(data.items)) {
+          allResults.push(...data.items);
+        }
+      } catch (error) {
+        console.error('YouTube API error:', error);
+        throw error;
+      }
+    }
+
+    return allResults;
+  }
 }

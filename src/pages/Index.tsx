@@ -33,6 +33,22 @@ export interface MusicVideo {
   strMusicBrainzArtistID?: string;
   strMusicBrainzAlbumID?: string;
   strMusicBrainzID?: string;
+  youtubeDetails?: {
+    duration?: string;
+    dimension?: string;
+    definition?: string;
+    caption?: string;
+    licensedContent?: boolean;
+    regionRestriction?: {
+      allowed?: string[];
+      blocked?: string[];
+    };
+    viewCount?: string;
+    likeCount?: string;
+    commentCount?: string;
+    publishedAt?: string;
+    tags?: string[];
+  };
 }
 
 const Index = () => {
@@ -40,6 +56,7 @@ const Index = () => {
   const [database, setDatabase] = useState<ArtistData[]>([]);
   const [isProcessingMB, setIsProcessingMB] = useState(false);
   const [isProcessingVideos, setIsProcessingVideos] = useState(false);
+  const [isProcessingYouTube, setIsProcessingYouTube] = useState(false);
   const [runSimultaneously, setRunSimultaneously] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
   const [autoSave, setAutoSave] = useState(false);
@@ -56,6 +73,7 @@ const Index = () => {
   const [apiStats, setApiStats] = useState({
     musicBrainzCalls: 0,
     theAudioDbCalls: 0,
+    youtubeApiCalls: 0,
     rateLimitStatus: 'normal' as 'normal' | 'warning' | 'limited'
   });
   const [configSettings, setConfigSettings] = useState<ConfigurationSettings>({
@@ -81,9 +99,10 @@ const Index = () => {
 
   const apiServiceRef = useRef(new APIService(apiConfig));
   
-  // Rate limiters for both APIs
+  // Rate limiters for all APIs
   const musicBrainzLimiter = useRateLimiter({ maxCalls: 1, timeWindow: 1000 }); // 1 call per second
   const theAudioDbLimiter = useRateLimiter({ maxCalls: 2, timeWindow: 1000 }); // 2 calls per second
+  const youtubeLimiter = useRateLimiter({ maxCalls: 10, timeWindow: 1000 }); // 10 calls per second (within quota)
 
   // Auto-save functionality
   const triggerAutoSave = (currentProcessedCount: number) => {
@@ -311,6 +330,124 @@ const Index = () => {
     });
   };
 
+  const getYouTubeVideoInfo = async () => {
+    setIsProcessingYouTube(true);
+    if (!processingStartTime) {
+      setProcessingStartTime(new Date());
+      setProcessedCallsCount(0);
+    }
+    
+    // Collect all videos that have YouTube URLs
+    const videosToEnrich: { artistIndex: number; videoIndex: number; url: string }[] = [];
+    
+    database.forEach((artist, artistIndex) => {
+      if (artist.mvids) {
+        artist.mvids.forEach((video, videoIndex) => {
+          if (video.strMusicVid && !video.youtubeDetails) {
+            videosToEnrich.push({ artistIndex, videoIndex, url: video.strMusicVid });
+          }
+        });
+      }
+    });
+
+    if (videosToEnrich.length === 0) {
+      toast({
+        title: "No Videos to Enrich",
+        description: "No YouTube videos found or all videos already have YouTube details",
+        variant: "destructive"
+      });
+      setIsProcessingYouTube(false);
+      return;
+    }
+
+    toast({
+      title: "YouTube Enrichment Started",
+      description: `Fetching details for ${videosToEnrich.length} videos (batched up to 50 per request)`,
+    });
+
+    // Process in batches of 50
+    const batchSize = 50;
+    for (let i = 0; i < videosToEnrich.length; i += batchSize) {
+      if (stopRequested) {
+        break;
+      }
+
+      const batch = videosToEnrich.slice(i, i + batchSize);
+      const urls = batch.map(item => item.url);
+
+      try {
+        const youtubeDetails = await youtubeLimiter.enqueue(() =>
+          apiServiceRef.current.getYouTubeVideoDetails(urls)
+        );
+
+        setApiStats(prev => ({
+          ...prev,
+          youtubeApiCalls: prev.youtubeApiCalls + 1
+        }));
+
+        const newCallCount = processedCallsCount + 1;
+        setProcessedCallsCount(newCallCount);
+        triggerAutoSave(newCallCount);
+        
+        if (processingStartTime) {
+          updateTimeEstimation(newCallCount, Math.ceil(videosToEnrich.length / batchSize), processingStartTime);
+        }
+
+        // Map YouTube details back to videos
+        const detailsMap = new Map(youtubeDetails.map(item => [item.id, item]));
+
+        setDatabase(prev => {
+          const newDatabase = [...prev];
+          
+          batch.forEach(({ artistIndex, videoIndex, url }) => {
+            const videoId = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/)?.[1];
+            
+            if (videoId && detailsMap.has(videoId)) {
+              const ytData = detailsMap.get(videoId);
+              const artist = newDatabase[artistIndex];
+              
+              if (artist.mvids && artist.mvids[videoIndex]) {
+                artist.mvids[videoIndex] = {
+                  ...artist.mvids[videoIndex],
+                  youtubeDetails: {
+                    duration: ytData.contentDetails?.duration,
+                    dimension: ytData.contentDetails?.dimension,
+                    definition: ytData.contentDetails?.definition,
+                    caption: ytData.contentDetails?.caption,
+                    licensedContent: ytData.contentDetails?.licensedContent,
+                    regionRestriction: ytData.contentDetails?.regionRestriction,
+                    viewCount: ytData.statistics?.viewCount,
+                    likeCount: ytData.statistics?.likeCount,
+                    commentCount: ytData.statistics?.commentCount,
+                    publishedAt: ytData.snippet?.publishedAt,
+                    tags: ytData.snippet?.tags,
+                  }
+                };
+              }
+            }
+          });
+          
+          return newDatabase;
+        });
+
+      } catch (error) {
+        toast({
+          title: "YouTube API Error",
+          description: error instanceof Error ? error.message : "Failed to fetch YouTube details",
+          variant: "destructive"
+        });
+        console.error('YouTube API error:', error);
+      }
+    }
+
+    setIsProcessingYouTube(false);
+    setStopRequested(false);
+    toast({
+      title: stopRequested ? "YouTube Enrichment Stopped" : "YouTube Enrichment Complete",
+      description: stopRequested ? "Processing was stopped by user" : "All video details have been fetched",
+    });
+  };
+
   const exportDatabase = () => {
     try {
       ImportExportService.downloadDatabase(database, apiStats);
@@ -333,6 +470,7 @@ const Index = () => {
     setApiStats({
       musicBrainzCalls: 0,
       theAudioDbCalls: 0,
+      youtubeApiCalls: 0,
       rateLimitStatus: 'normal'
     });
     
@@ -363,6 +501,7 @@ const Index = () => {
   const runSimultaneousProcessing = async () => {
     setIsProcessingMB(true);
     setIsProcessingVideos(true);
+    setIsProcessingYouTube(true);
     setProcessingStartTime(new Date());
     setProcessedCallsCount(0);
     
@@ -445,6 +584,63 @@ const Index = () => {
               } : a
             ));
 
+            // Step 3: Get YouTube Video Info
+            if (videos.length > 0 && apiServiceRef.current.isYouTubeApiConfigured()) {
+              try {
+                const videoUrls = videos.map(v => v.strMusicVid);
+                const youtubeDetails = await youtubeLimiter.enqueue(() =>
+                  apiServiceRef.current.getYouTubeVideoDetails(videoUrls)
+                );
+
+                setApiStats(prev => ({
+                  ...prev,
+                  youtubeApiCalls: prev.youtubeApiCalls + 1
+                }));
+
+                newCallCount = processedCallsCount + 1;
+                setProcessedCallsCount(newCallCount);
+                triggerAutoSave(newCallCount);
+
+                // Map YouTube details to videos
+                const detailsMap = new Map(youtubeDetails.map(item => [item.id, item]));
+
+                setDatabase(prev => prev.map((a, i) => {
+                  if (i === index && a.mvids) {
+                    const enrichedVideos = a.mvids.map(video => {
+                      const videoId = video.strMusicVid.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/)?.[1];
+                      
+                      if (videoId && detailsMap.has(videoId)) {
+                        const ytData = detailsMap.get(videoId);
+                        return {
+                          ...video,
+                          youtubeDetails: {
+                            duration: ytData.contentDetails?.duration,
+                            dimension: ytData.contentDetails?.dimension,
+                            definition: ytData.contentDetails?.definition,
+                            caption: ytData.contentDetails?.caption,
+                            licensedContent: ytData.contentDetails?.licensedContent,
+                            regionRestriction: ytData.contentDetails?.regionRestriction,
+                            viewCount: ytData.statistics?.viewCount,
+                            likeCount: ytData.statistics?.likeCount,
+                            commentCount: ytData.statistics?.commentCount,
+                            publishedAt: ytData.snippet?.publishedAt,
+                            tags: ytData.snippet?.tags,
+                          }
+                        };
+                      }
+                      return video;
+                    });
+
+                    return { ...a, mvids: enrichedVideos };
+                  }
+                  return a;
+                }));
+
+              } catch (youtubeError) {
+                console.error('YouTube enrichment error in simultaneous mode:', youtubeError);
+              }
+            }
+
           } catch (videoError) {
             setDatabase(prev => prev.map((a, i) => 
               i === index ? {
@@ -476,6 +672,7 @@ const Index = () => {
 
     setIsProcessingMB(false);
     setIsProcessingVideos(false);
+    setIsProcessingYouTube(false);
     setStopRequested(false);
     setEstimatedTimeRemaining("");
     toast({
@@ -498,6 +695,23 @@ const Index = () => {
     const pendingMusicBrainz = database.filter(a => a.status === 'pending').length;
     const completedMusicBrainz = database.filter(a => a.musicBrainzArtistID && a.status === 'completed').length;
     const errorMusicBrainz = database.filter(a => a.status === 'error').length;
+    
+    // Count videos that need YouTube enrichment
+    let pendingYouTube = 0;
+    let completedYouTube = 0;
+    database.forEach(artist => {
+      if (artist.mvids) {
+        artist.mvids.forEach(video => {
+          if (video.strMusicVid) {
+            if (video.youtubeDetails) {
+              completedYouTube++;
+            } else {
+              pendingYouTube++;
+            }
+          }
+        });
+      }
+    });
     const pendingVideoData = database.filter(a => a.musicBrainzArtistID && !a.mvids).length;
     const completedVideoData = database.filter(a => a.mvids && a.mvids.length > 0).length;
     const errorVideoData = database.filter(a => a.error && a.error.includes('Video data error')).length;
@@ -509,7 +723,9 @@ const Index = () => {
       errorMusicBrainz,
       pendingVideoData,
       completedVideoData,
-      errorVideoData
+      errorVideoData,
+      pendingYouTube,
+      completedYouTube
     };
   };
 
@@ -555,16 +771,18 @@ const Index = () => {
               stats={getActionStats()}
               onGetMusicBrainzIds={getMusicBrainzIds}
               onGetVideoData={getVideoData}
+              onGetYouTubeVideoInfo={getYouTubeVideoInfo}
               onRunSimultaneous={runSimultaneousProcessing}
               onStopProcessing={stopProcessing}
               isProcessingMB={isProcessingMB}
               isProcessingVideos={isProcessingVideos}
+              isProcessingYouTube={isProcessingYouTube}
               runSimultaneously={runSimultaneously}
               onRunSimultaneousToggle={setRunSimultaneously}
               autoSave={autoSave}
               onAutoSaveToggle={setAutoSave}
               estimatedTimeRemaining={estimatedTimeRemaining}
-              disabled={isProcessingMB || isProcessingVideos}
+              disabled={isProcessingMB || isProcessingVideos || isProcessingYouTube}
             />
           </div>
 
@@ -572,7 +790,7 @@ const Index = () => {
           <div className="space-y-6">
             <DataInputSection 
               onArtistsAdded={addArtistsToDatabase}
-              disabled={isProcessingMB || isProcessingVideos}
+              disabled={isProcessingMB || isProcessingVideos || isProcessingYouTube}
               apiConfig={apiConfig}
             />
             
@@ -582,7 +800,7 @@ const Index = () => {
               onImport={importDatabase}
               onShowSummary={showSummary}
               hasData={database.length > 0}
-              disabled={isProcessingMB || isProcessingVideos}
+              disabled={isProcessingMB || isProcessingVideos || isProcessingYouTube}
               database={database}
               apiStats={apiStats}
             />
@@ -590,13 +808,13 @@ const Index = () => {
             <JSONManagerSection
               currentData={database}
               onDataUpdate={setDatabase}
-              disabled={isProcessingMB || isProcessingVideos}
+              disabled={isProcessingMB || isProcessingVideos || isProcessingYouTube}
             />
             
             <ConfigurationSection
               settings={configSettings}
               onSettingsUpdate={setConfigSettings}
-              disabled={isProcessingMB || isProcessingVideos}
+              disabled={isProcessingMB || isProcessingVideos || isProcessingYouTube}
             />
           </div>
 
@@ -604,7 +822,7 @@ const Index = () => {
           <DatabaseViewer
             database={database}
             onProcessArtist={() => {}} // No longer used - replaced by individual actions
-            isProcessing={isProcessingMB || isProcessingVideos}
+            isProcessing={isProcessingMB || isProcessingVideos || isProcessingYouTube}
           />
         </div>
       </div>
