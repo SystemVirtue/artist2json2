@@ -331,6 +331,15 @@ const Index = () => {
   };
 
   const getYouTubeVideoInfo = async () => {
+    if (!apiServiceRef.current.isYouTubeApiConfigured()) {
+      toast({
+        title: "YouTube API Not Configured",
+        description: "Please configure YouTube API key in API Configuration section",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setIsProcessingYouTube(true);
     if (!processingStartTime) {
       setProcessingStartTime(new Date());
@@ -361,9 +370,13 @@ const Index = () => {
     }
 
     toast({
-      title: "YouTube Enrichment Started",
-      description: `Fetching details for ${videosToEnrich.length} videos (batched up to 50 per request)`,
+      title: "YouTube Validation Started",
+      description: `Validating ${videosToEnrich.length} videos for embeddability and privacy status`,
     });
+
+    // Track unavailable videos
+    const unavailableVideos: Array<{id: string; title: string; artist: string; reason: string}> = [];
+    let validVideosCount = 0;
 
     // Process in batches of 50
     const batchSize = 50;
@@ -401,14 +414,42 @@ const Index = () => {
           
           batch.forEach(({ artistIndex, videoIndex, url }) => {
             const videoId = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/)?.[1];
+            const artist = newDatabase[artistIndex];
             
-            if (videoId && detailsMap.has(videoId)) {
+            if (!videoId || !artist.mvids || !artist.mvids[videoIndex]) {
+              return;
+            }
+
+            const video = artist.mvids[videoIndex];
+            
+            if (detailsMap.has(videoId)) {
               const ytData = detailsMap.get(videoId);
-              const artist = newDatabase[artistIndex];
-              
-              if (artist.mvids && artist.mvids[videoIndex]) {
+              const status = ytData.status;
+              const isEmbeddable = status?.embeddable === true;
+              const isPublic = status?.privacyStatus === 'public';
+
+              // Check if video meets requirements
+              if (!isEmbeddable || !isPublic) {
+                const reasons = [];
+                if (!isEmbeddable) reasons.push('not embeddable');
+                if (!isPublic) reasons.push(`privacy status: ${status?.privacyStatus || 'unknown'}`);
+                
+                unavailableVideos.push({
+                  id: videoId,
+                  title: video.strTrack || 'Unknown',
+                  artist: video.strArtist || 'Unknown',
+                  reason: reasons.join(', ')
+                });
+                
+                console.log(`UNAVAILABLE: Video ID ${videoId} - ${video.strArtist} - ${video.strTrack} - Reason: ${reasons.join(', ')}`);
+                
+                // Remove video from database
+                artist.mvids!.splice(videoIndex, 1);
+              } else {
+                // Video is valid, add YouTube details
+                validVideosCount++;
                 artist.mvids[videoIndex] = {
-                  ...artist.mvids[videoIndex],
+                  ...video,
                   youtubeDetails: {
                     duration: ytData.contentDetails?.duration,
                     dimension: ytData.contentDetails?.dimension,
@@ -424,6 +465,19 @@ const Index = () => {
                   }
                 };
               }
+            } else {
+              // Video not found in API response
+              unavailableVideos.push({
+                id: videoId,
+                title: video.strTrack || 'Unknown',
+                artist: video.strArtist || 'Unknown',
+                reason: 'Video not found in YouTube API response'
+              });
+              
+              console.log(`UNAVAILABLE: Video ID ${videoId} - ${video.strArtist} - ${video.strTrack} - Reason: Not found in API response`);
+              
+              // Remove video from database
+              artist.mvids!.splice(videoIndex, 1);
             }
           });
           
@@ -440,12 +494,30 @@ const Index = () => {
       }
     }
 
+    // Log summary
+    if (unavailableVideos.length > 0) {
+      console.log(`\n=== UNAVAILABLE VIDEOS SUMMARY ===`);
+      console.log(`Removed ${unavailableVideos.length} unavailable videos:`);
+      unavailableVideos.forEach(v => {
+        console.log(`  - ID: ${v.id} | Artist: ${v.artist} | Title: ${v.title} | Reason: ${v.reason}`);
+      });
+      console.log(`===================================\n`);
+    }
+
     setIsProcessingYouTube(false);
     setStopRequested(false);
-    toast({
-      title: stopRequested ? "YouTube Enrichment Stopped" : "YouTube Enrichment Complete",
-      description: stopRequested ? "Processing was stopped by user" : "All video details have been fetched",
-    });
+    
+    if (unavailableVideos.length > 0) {
+      toast({
+        title: stopRequested ? "YouTube Validation Stopped" : "YouTube Validation Complete",
+        description: `Validated ${validVideosCount} videos. Removed ${unavailableVideos.length} unavailable videos (see console for details)`,
+      });
+    } else {
+      toast({
+        title: stopRequested ? "YouTube Validation Stopped" : "YouTube Validation Complete",
+        description: stopRequested ? "Processing was stopped by user" : `All ${validVideosCount} videos validated successfully`,
+      });
+    }
   };
 
   const exportDatabase = () => {
@@ -584,7 +656,7 @@ const Index = () => {
               } : a
             ));
 
-            // Step 3: Get YouTube Video Info
+            // Step 3: Validate YouTube Videos and Get Info
             if (videos.length > 0 && apiServiceRef.current.isYouTubeApiConfigured()) {
               try {
                 const videoUrls = videos.map(v => v.strMusicVid);
@@ -601,12 +673,36 @@ const Index = () => {
                 setProcessedCallsCount(newCallCount);
                 triggerAutoSave(newCallCount);
 
-                // Map YouTube details to videos
+                // Map YouTube details to videos and validate
                 const detailsMap = new Map(youtubeDetails.map(item => [item.id, item]));
 
                 setDatabase(prev => prev.map((a, i) => {
                   if (i === index && a.mvids) {
-                    const enrichedVideos = a.mvids.map(video => {
+                    // Filter and enrich videos based on embeddable and privacy status
+                    const validVideos = a.mvids.filter(video => {
+                      const videoId = video.strMusicVid.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/)?.[1];
+                      
+                      if (!videoId || !detailsMap.has(videoId)) {
+                        console.log(`UNAVAILABLE (Simultaneous): Video ID ${videoId} - ${video.strArtist} - ${video.strTrack} - Not found in API response`);
+                        return false;
+                      }
+
+                      const ytData = detailsMap.get(videoId);
+                      const status = ytData.status;
+                      const isEmbeddable = status?.embeddable === true;
+                      const isPublic = status?.privacyStatus === 'public';
+
+                      if (!isEmbeddable || !isPublic) {
+                        const reasons = [];
+                        if (!isEmbeddable) reasons.push('not embeddable');
+                        if (!isPublic) reasons.push(`privacy status: ${status?.privacyStatus || 'unknown'}`);
+                        
+                        console.log(`UNAVAILABLE (Simultaneous): Video ID ${videoId} - ${video.strArtist} - ${video.strTrack} - ${reasons.join(', ')}`);
+                        return false;
+                      }
+
+                      return true;
+                    }).map(video => {
                       const videoId = video.strMusicVid.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/)?.[1];
                       
                       if (videoId && detailsMap.has(videoId)) {
@@ -631,13 +727,13 @@ const Index = () => {
                       return video;
                     });
 
-                    return { ...a, mvids: enrichedVideos };
+                    return { ...a, mvids: validVideos };
                   }
                   return a;
                 }));
 
               } catch (youtubeError) {
-                console.error('YouTube enrichment error in simultaneous mode:', youtubeError);
+                console.error('YouTube validation error in simultaneous mode:', youtubeError);
               }
             }
 

@@ -218,7 +218,7 @@ export class APIService {
 
     for (const batch of batches) {
       const ids = batch.join(',');
-      const url = `https://www.googleapis.com/youtube/v3/videos?id=${ids}&part=contentDetails,snippet,statistics&key=${this.config.youtubeApiKey}`;
+      const url = `https://www.googleapis.com/youtube/v3/videos?id=${ids}&part=contentDetails,snippet,statistics,status&key=${this.config.youtubeApiKey}`;
 
       try {
         const response = await fetch(url, {
