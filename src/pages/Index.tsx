@@ -49,8 +49,8 @@ const Index = () => {
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<string>("");
   const [apiConfig, setApiConfig] = useState({
     userAgent: "MusicVideoDBManager/1.0 ( your-email@example.com )",
-    theAudioDbKey: "2",
-    youtubeApiKey: "",
+    theAudioDbKey: VITE_THEAUDIODB_API_KEY,
+    youtubeApiKey: VITE_YOUTUBE_V3_API_KEY,
     spotifyAccessToken: ""
   });
   const [apiStats, setApiStats] = useState({
