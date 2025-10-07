@@ -194,6 +194,82 @@ export const JSONModifyTool = ({ data, onDataUpdate, disabled }: JSONModifyToolP
   const selectedCount = modifiedFields.filter(field => field.isSelected).length;
   const totalCount = modifiedFields.length;
 
+  // Generate preview of selected schema
+  const generatePreview = () => {
+    if (!data.length || !modifiedFields.length) return null;
+    
+    const selectedPaths = new Set(
+      modifiedFields.filter(f => f.isSelected).map(f => f.key)
+    );
+    
+    const sampleRecord = data[0];
+    const preview = JSONManagementService.createModifiedJSON([sampleRecord], modifiedFields)[0];
+    return preview;
+  };
+
+  const saveSchemaTemplate = () => {
+    const schemaTemplate = {
+      name: "Custom Schema",
+      timestamp: new Date().toISOString(),
+      fields: modifiedFields.map(f => ({
+        key: f.key,
+        type: f.type,
+        isSelected: f.isSelected,
+        path: f.path
+      }))
+    };
+    
+    const filename = `schema_template_${new Date().toISOString().split('T')[0]}.json`;
+    JSONManagementService.downloadFile(
+      JSON.stringify(schemaTemplate, null, 2),
+      filename
+    );
+    
+    toast({
+      title: "Schema Saved",
+      description: `Schema template saved as ${filename}`,
+    });
+  };
+
+  const handleSchemaUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const content = await file.text();
+      const schema = JSON.parse(content);
+      
+      if (!schema.fields || !Array.isArray(schema.fields)) {
+        throw new Error("Invalid schema format");
+      }
+
+      // Apply the schema selections
+      setModifiedFields(prev => {
+        return prev.map(field => {
+          const schemaField = schema.fields.find((sf: any) => sf.key === field.key);
+          if (schemaField) {
+            return { ...field, isSelected: schemaField.isSelected };
+          }
+          return field;
+        });
+      });
+
+      toast({
+        title: "Schema Loaded",
+        description: `Applied schema template: ${schema.name || 'Unnamed'}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Schema Load Error",
+        description: error instanceof Error ? error.message : "Failed to load schema",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const schemaInputRef = useRef<HTMLInputElement>(null);
+  const preview = generatePreview();
+
   return (
     <div className="space-y-6">
       {/* Import/Current Data Section */}
@@ -242,6 +318,14 @@ export const JSONModifyTool = ({ data, onDataUpdate, disabled }: JSONModifyToolP
           style={{ display: 'none' }}
         />
 
+        <input
+          type="file"
+          ref={schemaInputRef}
+          onChange={handleSchemaUpload}
+          accept=".json"
+          style={{ display: 'none' }}
+        />
+
         {isAnalyzing && (
           <div className="flex items-center gap-2">
             <Progress value={undefined} className="flex-1" />
@@ -272,91 +356,133 @@ export const JSONModifyTool = ({ data, onDataUpdate, disabled }: JSONModifyToolP
             </div>
           </div>
 
-          {/* Field Selection Controls */}
-          <div className="space-y-3">
-            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-              <Input
-                placeholder="Search fields..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="sm:max-w-xs"
-              />
+          {/* Schema Management */}
+          <div className="flex gap-3 items-center">
+            <Button
+              onClick={saveSchemaTemplate}
+              size="sm"
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Save Schema Template
+            </Button>
+            <Button
+              onClick={() => schemaInputRef.current?.click()}
+              size="sm"
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              Load Schema Template
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Field Selection Panel */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">Field Selection</h3>
               
-              <div className="flex gap-2 flex-wrap">
-                <Button
-                  onClick={handleSelectAll}
-                  size="sm"
-                  variant="outline"
-                >
-                  {selectedCount === totalCount ? 'Deselect All' : 'Select All'}
-                </Button>
+              <div className="flex flex-col gap-3">
+                <Input
+                  placeholder="Search fields..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
                 
-                {Object.keys(structure.dataTypes).map(type => (
+                <div className="flex gap-2 flex-wrap">
                   <Button
-                    key={type}
-                    onClick={() => handleSelectByType(type)}
+                    onClick={handleSelectAll}
                     size="sm"
                     variant="outline"
-                    className="text-xs"
                   >
-                    Toggle {type} ({structure.dataTypes[type]})
+                    {selectedCount === totalCount ? 'Deselect All' : 'Select All'}
                   </Button>
-                ))}
+                  
+                  {Object.keys(structure.dataTypes).map(type => (
+                    <Button
+                      key={type}
+                      onClick={() => handleSelectByType(type)}
+                      size="sm"
+                      variant="outline"
+                      className="text-xs"
+                    >
+                      Toggle {type} ({structure.dataTypes[type]})
+                    </Button>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            {/* Field List */}
-            <ScrollArea className="h-[400px] border rounded-lg p-4">
-              <div className="space-y-3">
-                {filteredFields.map((field, index) => (
-                  <div key={field.key} className="space-y-2">
-                    <div className="flex items-start gap-3">
-                      <Checkbox
-                        id={`field-${index}`}
-                        checked={field.isSelected}
-                        onCheckedChange={(checked) => 
-                          handleFieldToggle(field.key, checked as boolean)
-                        }
-                        className="mt-1"
-                      />
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Label 
-                            htmlFor={`field-${index}`}
-                            className="font-mono text-sm font-medium cursor-pointer"
-                          >
-                            {field.key}
-                          </Label>
-                          <Badge variant="secondary" className="text-xs">
-                            {field.type}
-                          </Badge>
-                        </div>
+              {/* Field List */}
+              <ScrollArea className="h-[500px] border rounded-lg p-4">
+                <div className="space-y-3">
+                  {filteredFields.map((field, index) => (
+                    <div key={field.key} className="space-y-2">
+                      <div className="flex items-start gap-3">
+                        <Checkbox
+                          id={`field-${index}`}
+                          checked={field.isSelected}
+                          onCheckedChange={(checked) => 
+                            handleFieldToggle(field.key, checked as boolean)
+                          }
+                          className="mt-1"
+                        />
                         
-                        {field.description && (
-                          <div className="flex items-start gap-1 mt-1">
-                            <Info className="h-3 w-3 text-muted-foreground mt-0.5 flex-shrink-0" />
-                            <p className="text-xs text-muted-foreground">
-                              {field.description}
-                            </p>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Label 
+                              htmlFor={`field-${index}`}
+                              className="font-mono text-sm font-medium cursor-pointer"
+                            >
+                              {field.key}
+                            </Label>
+                            <Badge variant="secondary" className="text-xs">
+                              {field.type}
+                            </Badge>
                           </div>
-                        )}
-                        
-                        <div className="text-xs text-muted-foreground font-mono mt-1 truncate">
-                          Sample: {JSON.stringify(field.sampleValue)}
+                          
+                          {field.description && (
+                            <div className="flex items-start gap-1 mt-1">
+                              <Info className="h-3 w-3 text-muted-foreground mt-0.5 flex-shrink-0" />
+                              <p className="text-xs text-muted-foreground">
+                                {field.description}
+                              </p>
+                            </div>
+                          )}
+                          
+                          <div className="text-xs text-muted-foreground font-mono mt-1 truncate">
+                            Sample: {JSON.stringify(field.sampleValue)}
+                          </div>
                         </div>
                       </div>
+                      
+                      {index < filteredFields.length - 1 && <Separator />}
                     </div>
-                    
-                    {index < filteredFields.length - 1 && <Separator />}
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+
+            {/* Live Preview Panel */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">Live Preview (Single Entry)</h3>
+              <ScrollArea className="h-[600px] border rounded-lg p-4 bg-muted/20">
+                {preview ? (
+                  <pre className="text-xs font-mono whitespace-pre-wrap">
+                    {JSON.stringify(preview, null, 2)}
+                  </pre>
+                ) : (
+                  <div className="text-center text-muted-foreground py-8">
+                    <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No fields selected</p>
                   </div>
-                ))}
-              </div>
-            </ScrollArea>
+                )}
+              </ScrollArea>
+            </div>
           </div>
 
           {/* Export Controls */}
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center">
             <Button
               onClick={exportModifiedJSON}
               disabled={disabled || selectedCount === 0}
